@@ -1,0 +1,23 @@
+[package]
+name = "type-macro-derive-tricks"
+version = "0.1.0"
+edition = "2021"
+description = "Derive macros that work with ADTs containing macros in type positions"
+license = "MIT"
+authors = ["Yasuo Ozu <yasuo@ozu.email>"]
+repository = "https://github.com/yasuo-ozu/type-macro-derive-tricks"
+readme = "README.md"
+keywords = ["macro", "derive", "procedural", "type", "generic"]
+categories = ["development-tools::procedural-macro-helpers", "rust-patterns"]
+
+[lib]
+proc-macro = true
+
+[dependencies]
+proc-macro2 = "1.0"
+quote = "1.0"
+syn = { version = "2.0", features = ["full", "extra-traits"] }
+rand = "0.8"
+
+[dev-dependencies]
+trybuild = "1.0"
