@@ -2,12 +2,12 @@
 
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
-use quote::quote;
 use rand::{distributions::Alphanumeric, Rng};
 use std::collections::HashMap;
 use syn::{
-    parse_macro_input, Data, DeriveInput, Fields, Generics, Ident, Type,
+    parse_macro_input, punctuated::Punctuated, Data, DeriveInput, Fields, Generics, Ident, Type,
 };
+use template_quote::quote;
 
 /// Main procedural macro that handles types with macros in type positions
 ///
@@ -76,7 +76,7 @@ fn impl_type_macro_derive_tricks(derive_traits: &[syn::Path], input: &DeriveInpu
         // Generate type aliases with only the specific generic parameters used by the macro
         // and add #[doc(hidden)] to hide them from documentation
         let used_generic_params = get_used_generic_params(macro_type, &input.generics);
-        
+
         let alias = if used_generic_params.is_empty() {
             quote! {
                 #[doc(hidden)]
@@ -84,12 +84,27 @@ fn impl_type_macro_derive_tricks(derive_traits: &[syn::Path], input: &DeriveInpu
             }
         } else {
             // Create a filtered Generics struct with only the used parameters
-            let filtered_generics = create_filtered_generics(&used_generic_params);
-            let (impl_generics, _ty_generics, _where_clause) = filtered_generics.split_for_impl();
-            
+            let filtered_generics = create_filtered_generics(&used_generic_params)
+                .params
+                .into_iter()
+                .map(|mut param| {
+                    match &mut param {
+                        syn::GenericParam::Type(tp) => {
+                            tp.eq_token = None;
+                            tp.default = None;
+                        }
+                        syn::GenericParam::Const(cp) => {
+                            cp.eq_token = None;
+                            cp.default = None;
+                        }
+                        _ => (),
+                    }
+                    param
+                })
+                .collect::<Punctuated<_, syn::Token![,]>>();
             quote! {
                 #[doc(hidden)]
-                type #alias_name #impl_generics = #macro_type;
+                type #alias_name <#filtered_generics> = #macro_type;
             }
         };
         type_aliases.push(alias);
@@ -205,7 +220,6 @@ fn collect_macro_types_from_type(
     }
 }
 
-
 fn generate_random_type_name() -> Ident {
     let random_suffix: String = rand::thread_rng()
         .sample_iter(&Alphanumeric)
@@ -222,32 +236,35 @@ fn generate_random_type_name() -> Ident {
 fn get_used_generic_params(macro_type: &Type, generics: &Generics) -> Vec<syn::GenericParam> {
     // Analyze which specific generic parameters are used in the macro type
     let mut used_params = Vec::new();
-    
+
     if let Type::Macro(type_macro) = macro_type {
         let macro_tokens = &type_macro.mac.tokens;
-        
+
         for param in &generics.params {
             let param_name = match param {
                 syn::GenericParam::Type(type_param) => type_param.ident.to_string(),
                 syn::GenericParam::Lifetime(lifetime_param) => lifetime_param.lifetime.to_string(),
                 syn::GenericParam::Const(const_param) => const_param.ident.to_string(),
             };
-            
+
             // Use the improved token search that handles nested structures
             if is_generic_param_used_in_token_stream(macro_tokens, &param_name) {
                 used_params.push(param.clone());
             }
         }
     }
-    
+
     used_params
 }
 
-fn is_generic_param_used_in_token_stream(tokens: &proc_macro2::TokenStream, identifier: &str) -> bool {
+fn is_generic_param_used_in_token_stream(
+    tokens: &proc_macro2::TokenStream,
+    identifier: &str,
+) -> bool {
     use proc_macro2::TokenTree;
-    
+
     let tokens_vec: Vec<TokenTree> = tokens.clone().into_iter().collect();
-    
+
     for (i, token) in tokens_vec.iter().enumerate() {
         match token {
             TokenTree::Ident(ident) => {
@@ -279,19 +296,18 @@ fn is_generic_param_used_in_token_stream(tokens: &proc_macro2::TokenStream, iden
             }
         }
     }
-    
+
     false
 }
-
 
 fn create_filtered_generics(used_params: &[syn::GenericParam]) -> syn::Generics {
     // Create a new Generics struct containing only the used parameters
     let mut generics = syn::Generics::default();
-    
+
     for param in used_params {
         generics.params.push(param.clone());
     }
-    
+
     generics
 }
 
@@ -341,7 +357,7 @@ fn transform_type(ty: &mut Type, macro_types: &HashMap<Type, Ident>, generics: &
         // Check if this macro type has an alias
         if let Some(alias) = macro_types.get(ty) {
             let used_generic_params = get_used_generic_params(ty, generics);
-            
+
             if used_generic_params.is_empty() {
                 *ty = syn::parse_quote!(#alias);
             } else {
@@ -387,7 +403,6 @@ fn transform_type(ty: &mut Type, macro_types: &HashMap<Type, Ident>, generics: &
         _ => {}
     }
 }
-
 
 #[cfg(test)]
 mod tests {
